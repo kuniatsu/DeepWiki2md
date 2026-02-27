@@ -70,11 +70,6 @@ Devin AI上の社内Wiki（DeepWiki）を、ワンタップで一括Markdown化�
 - **データプライバシー:** 本ツールはローカル（ユーザーのブラウザ内）でのみ動作します。取得したWikiデータを外部のサーバーに送信することはありません。
 - **セッション利用:** ユーザーが現在ログインしているセッションを利用して読み取りを行います。パスワードなどをツール内に保存することはありません。
 
----
 
-## 👤 開発者
-- **Project Lead:** [あなたの名前/組織名]
-- **Contact:** [連絡先や社内チャンネル名など]
 
----
-*Developed with 💻 for bridging the gap between internal docs and AI power.*
+この文章はGeminiが書きました。
