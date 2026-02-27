@@ -1286,11 +1286,20 @@ var TurndownService = (function () {
     }
 
     // ファイルダウンロード
+    // URL から /wiki/ 以降のリポジトリパスを抽出してファイル名に使用
+    // 例: https://app.devin.ai/org/ai-jvittechs/wiki/gitlab.com/jvit-techs/online-dr/enhance#1
+    //   → repoSlug = "gitlab.com_jvit-techs_online-dr_enhance"
+    const wikiPathMatch = window.location.href.match(/\/wiki\/([^#?]+)/);
+    const repoSlug = wikiPathMatch
+      ? wikiPathMatch[1].replace(/\/+$/, '').replace(/\//g, '_')
+      : 'unknown';
+    const dateStr = new Date().toISOString().slice(0, 10);
+
     const blob = new Blob([combinedMarkdown], { type: 'text/markdown' });
     const downloadUrl = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = downloadUrl;
-    a.download = `DeepWiki_Export_${new Date().toISOString().slice(0, 10)}.md`;
+    a.download = `DeepWiki_${repoSlug}_${dateStr}.md`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
