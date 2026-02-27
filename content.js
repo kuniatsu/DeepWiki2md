@@ -998,7 +998,7 @@ var TurndownService = (function () {
    *   → 解決策: ボタンを直接クリックし MutationObserver でDOM更新を待つ。
    */
 
-  const VERSION = 'v0.0.4';
+  const VERSION = 'v0.0.5';
   const LOG = (...args) => console.log('[DeepWiki2md]', ...args);
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
