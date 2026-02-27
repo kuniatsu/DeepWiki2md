@@ -4,59 +4,141 @@
   /**
    * Devin DeepWiki One-Tap Exporter
    * 機能: サイドバーの全ボタンをクリックして巡回し、本文をMarkdown化して1つのファイルに結合。
+   *
+   * URL形式について:
+   *   DeepWikiはReact SPA。各Wikiページは #番号 のフラグメントURLで識別される。
+   *   例: https://app.devin.ai/org/.../wiki/...#1
+   *       https://app.devin.ai/org/.../wiki/...#1.1
+   *       https://app.devin.ai/org/.../wiki/...#3.4
+   *
+   *   fetch() でこれらのURLを取得しても、# 以降はHTTPリクエストに含まれないため
+   *   サーバーは空のSPAシェルHTMLを返すだけ。コンテンツは取得できない。
+   *   → 解決策: ボタンを直接クリックし MutationObserver でDOM更新を待つ。
    */
 
-  const VERSION = 'v0.0.3';
+  const VERSION = 'v0.0.4';
   const LOG = (...args) => console.log('[DeepWiki2md]', ...args);
 
-  // サイドバーのwikiナビゲーションボタンを取得
-  function findNavButtons() {
-    LOG('=== findNavButtons 開始 ===');
-
-    // 方法1: data-slot="sidebar-group-content" 内の button[aria-label]
-    // (DeepWikiのWikiページナビゲーションはここに入っている)
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // sidebar-group-content 内の li + button を解析し
+  // セクション番号・予想URLを付けて返す
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  function parseSidebarItems() {
     const groupContent = document.querySelector('[data-slot="sidebar-group-content"]');
-    if (groupContent) {
-      const buttons = [...groupContent.querySelectorAll('button[aria-label]')];
-      if (buttons.length > 0) {
-        LOG('方法1 sidebar-group-content ボタン → 発見', buttons.length, '件',
-          buttons.map(b => b.getAttribute('aria-label')));
-        return buttons;
+    if (!groupContent) return null;
+
+    const liItems = [...groupContent.querySelectorAll('li[data-slot="sidebar-menu-item"]')];
+    const baseUrl = window.location.href.split('#')[0];
+
+    let topCount = 0;
+    // サブレベルごとのカウンタ (margin-left px → count)
+    const subCounters = {};
+
+    const items = liItems.map((li, idx) => {
+      const btn       = li.querySelector('button[aria-label]');
+      const label     = btn ? btn.getAttribute('aria-label') : `Item-${idx + 1}`;
+      const styleAttr = li.getAttribute('style') || '';
+      const mlMatch   = styleAttr.match(/margin-left:\s*(\d+)px/);
+      const marginLeft = mlMatch ? parseInt(mlMatch[1], 10) : 0;
+
+      let sectionNum;
+      if (marginLeft === 0) {
+        // トップレベル
+        topCount++;
+        // サブカウンタをリセット
+        Object.keys(subCounters).forEach(k => { subCounters[k] = 0; });
+        sectionNum = `${topCount}`;
+      } else {
+        // サブレベル (margin-left: 12px, 24px, ... に対応)
+        if (!subCounters[marginLeft]) subCounters[marginLeft] = 0;
+        subCounters[marginLeft]++;
+        // 上位レベルのカウンタをリセット
+        Object.keys(subCounters)
+          .filter(k => parseInt(k) > marginLeft)
+          .forEach(k => { subCounters[k] = 0; });
+        sectionNum = `${topCount}.${subCounters[marginLeft]}`;
       }
-    }
-    LOG('方法1 → 見つからず');
 
-    // 方法2: data-slot="sidebar-menu-item" 内の button[aria-label]
-    const menuItemButtons = [...document.querySelectorAll(
-      '[data-slot="sidebar-menu-item"] button[aria-label]'
-    )];
-    if (menuItemButtons.length > 0) {
-      LOG('方法2 sidebar-menu-item ボタン → 発見', menuItemButtons.length, '件');
-      return menuItemButtons;
-    }
-    LOG('方法2 → 見つからず');
+      return {
+        label,
+        sectionNum,
+        url: `${baseUrl}#${sectionNum}`,
+        marginLeft,
+        btn,
+        li,
+      };
+    });
 
-    // 方法3: data-slot="sidebar-content" 内の button[aria-label]
-    const contentButtons = [...document.querySelectorAll(
-      '[data-slot="sidebar-content"] button[aria-label]'
-    )];
-    if (contentButtons.length > 0) {
-      LOG('方法3 sidebar-content ボタン → 発見', contentButtons.length, '件');
-      return contentButtons;
-    }
-    LOG('方法3 → 見つからず');
-
-    LOG('=== findNavButtons: 全方法失敗 ===');
-    return [];
+    return items;
   }
 
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // 目次・ページ数・URLリストを console.log に出力
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  function logTableOfContents(items) {
+    LOG('');
+    LOG('╔═══════════════════════════════════════════╗');
+    LOG('║   DeepWiki 目次 (sidebar-group-content)   ║');
+    LOG('╚═══════════════════════════════════════════╝');
+
+    items.forEach(({ label, sectionNum, marginLeft, btn, li }) => {
+      const indent = '  '.repeat(marginLeft / 12);
+      const btnInfo  = btn  ? `<button aria-label="${btn.getAttribute('aria-label')}">` : '(button なし)';
+      const liInfo   = `<li data-slot="sidebar-menu-item" style="margin-left:${marginLeft}px">`;
+      LOG(`${indent}[${sectionNum}]  ${label}`);
+      LOG(`${indent}      li  → ${liInfo}`);
+      LOG(`${indent}      btn → ${btnInfo}`);
+    });
+
+    LOG('');
+    LOG(`━━━ DL対象ページ数: ${items.length} ページ ━━━`);
+    LOG('');
+    LOG('━━━ DL対象URLリスト ━━━');
+    LOG('  ※ DeepWikiはSPA (React)。fetch()でこれらのURLを取得すると');
+    LOG('  ※ #以降がHTTPリクエストから除外され空のシェルHTMLが返るだけ。');
+    LOG('  ※ → 当拡張はボタンクリック方式で正しく対応済み。');
+    LOG('');
+    items.forEach(({ sectionNum, url, label }) => {
+      LOG(`  #${sectionNum}  ${url}  (${label})`);
+    });
+    LOG('');
+  }
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // ページ読み込み後、サイドバーが揃い次第 TOC をログ出力
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  function waitForSidebarAndLog() {
+    const tryLog = () => {
+      const items = parseSidebarItems();
+      if (items && items.length > 0) {
+        logTableOfContents(items);
+        return true;
+      }
+      return false;
+    };
+
+    if (tryLog()) return;
+
+    // sidebar-group-content がまだ未レンダリングの場合は待機
+    const observer = new MutationObserver(() => {
+      if (tryLog()) observer.disconnect();
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+    setTimeout(() => observer.disconnect(), 30000);
+  }
+
+  // 初回ログ出力
+  waitForSidebarAndLog();
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   // 現在表示中のページのコンテンツエリアを取得
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   function findContentBody() {
     // 方法1: .prose-main (DeepWikiのメインコンテンツ)
     const proseMain = document.querySelector('.wiki-content-container .prose-main');
     if (proseMain) return proseMain;
 
-    // 方法2: wiki-content-container 内の flex-1 > article or .prose
+    // 方法2: wiki-content-container 内の flex-1
     const container = document.querySelector('.wiki-content-container');
     if (container) {
       const flexOne = container.querySelector(':scope > div > .flex-1');
@@ -70,15 +152,18 @@
              container;
     }
 
-    // 方法3: article要素
+    // 方法3: article
     const article = document.querySelector('article');
     if (article) return article;
 
-    // 方法4: .prose クラス
+    // 方法4: .prose
     return document.querySelector('.prose');
   }
 
-  // ボタンクリック後にコンテンツが更新されるまで待機 (MutationObserver使用)
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // ボタンクリック後にReactのDOM更新を待機
+  // DeepWikiの #fragment URL はSPAナビゲーション = ボタンクリック方式で対応
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   function clickAndWait(button, timeout = 4000) {
     return new Promise((resolve) => {
       const contentContainer =
@@ -96,7 +181,6 @@
         if (!resolved) {
           resolved = true;
           observer.disconnect();
-          // DOM変更後に少し待ってからresolve (Reactのレンダリング完了を待つ)
           setTimeout(resolve, 400);
         }
       };
@@ -109,32 +193,30 @@
       });
 
       button.click();
-
-      // タイムアウトフォールバック
       setTimeout(done, timeout);
     });
   }
 
-  // HTMLをMarkdownに変換 (TurndownService使用)
+  // HTMLをMarkdownに変換
   function htmlToMarkdown(html) {
     try {
       const ts = new TurndownService({
         headingStyle: 'atx',
         codeBlockStyle: 'fenced',
       });
-      // ヘッダーアンカーボタン等の不要なUI要素を除去
       ts.remove(['button', 'script', 'style', 'svg', 'noscript']);
       return ts.turndown(html);
     } catch (e) {
       LOG('Turndown変換エラー:', e);
-      // フォールバック: テキストのみ抽出
       const tmp = document.createElement('div');
       tmp.innerHTML = html;
       return tmp.textContent;
     }
   }
 
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   // ボタンを画面右下に生成
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   const exportBtn = document.createElement('button');
   exportBtn.id = 'deepwiki-one-tap-btn';
   exportBtn.innerText = `🚀 一括MD生成 ${VERSION}`;
@@ -160,23 +242,26 @@
 
   document.body.appendChild(exportBtn);
 
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   // メイン実行ロジック
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   exportBtn.onclick = async () => {
     LOG('=== ボタンクリック ===');
 
-    const navButtons = findNavButtons();
-    LOG('navButtons:', navButtons.length, '件');
-
-    if (navButtons.length === 0) {
+    // 最新のサイドバー情報を取得してログ再出力
+    const items = parseSidebarItems();
+    if (!items || items.length === 0) {
       alert(
-        'サイドバーのナビゲーションボタンが見つかりません。\n' +
+        'サイドバーのナビゲーションが見つかりません。\n' +
         'DeepWikiのWikiページを開いているか確認してください。\n' +
         '詳細はDevTools Console(F12)を確認してください。'
       );
       return;
     }
 
-    if (!confirm(`${navButtons.length} ページを抽出してMarkdownを作成します。よろしいですか？`)) {
+    logTableOfContents(items);
+
+    if (!confirm(`${items.length} ページを抽出してMarkdownを作成します。よろしいですか？`)) {
       return;
     }
 
@@ -187,17 +272,18 @@
 
     let successCount = 0;
 
-    for (let i = 0; i < navButtons.length; i++) {
-      const btn = navButtons[i];
-      const pageTitle = (
-        btn.getAttribute('aria-label') || btn.innerText || `Page-${i + 1}`
-      ).trim();
+    for (let i = 0; i < items.length; i++) {
+      const { label, sectionNum, btn } = items[i];
 
-      exportBtn.innerText = `⏳ 取得中... (${i + 1}/${navButtons.length})`;
-      LOG(`クリック中 [${i + 1}/${navButtons.length}]: ${pageTitle}`);
+      exportBtn.innerText = `⏳ 取得中... (${i + 1}/${items.length})`;
+      LOG(`クリック中 [${i + 1}/${items.length}] #${sectionNum}: ${label}`);
 
       try {
         await clickAndWait(btn);
+
+        // クリック後の実際のURL (#fragment付き) を記録
+        const pageUrl = window.location.href;
+        LOG(`  → 実際のURL: ${pageUrl}`);
 
         const contentNode = findContentBody();
         LOG(`  コンテンツ取得: ${contentNode
@@ -205,16 +291,15 @@
           : 'NG'}`);
 
         if (contentNode) {
-          const pageUrl = window.location.href;
           const markdown = htmlToMarkdown(contentNode.innerHTML);
-          combinedMarkdown += `\n---\n\n# ${pageTitle}\n\nURL: ${pageUrl}\n\n${markdown}\n`;
+          combinedMarkdown += `\n---\n\n# ${label}\n\nURL: ${pageUrl}\n\n${markdown}\n`;
           successCount++;
         } else {
-          combinedMarkdown += `\n---\n\n# ${pageTitle}\n\n⚠️ コンテンツが見つかりませんでした。\n`;
+          combinedMarkdown += `\n---\n\n# ${label}\n\n⚠️ コンテンツが見つかりませんでした。\n`;
         }
       } catch (error) {
-        console.error(`[DeepWiki2md] 取得失敗: ${pageTitle}`, error);
-        combinedMarkdown += `\n---\n\n# ${pageTitle}\n\n⚠️ このページの取得に失敗しました。\n`;
+        console.error(`[DeepWiki2md] 取得失敗: ${label}`, error);
+        combinedMarkdown += `\n---\n\n# ${label}\n\n⚠️ このページの取得に失敗しました。\n`;
       }
     }
 
