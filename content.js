@@ -1252,7 +1252,7 @@ var TurndownService = (function () {
 
     logTableOfContents(items);
 
-    if (!confirm(`${items.length} ページを個別MDファイルとしてダウンロードします。\nファイル名: <repoSlug>_<#番号>.md\n\nよろしいですか？`)) {
+    if (!confirm(`${items.length} ページを個別MDファイルとしてダウンロードします。\nファイル名: DeepWiki_<repoSlug>_<#番号>.md\n\nよろしいですか？`)) {
       return;
     }
 
@@ -1309,7 +1309,7 @@ var TurndownService = (function () {
           pageMarkdown = `# ${label}\n\nURL: ${pageUrl}\n\n⚠️ コンテンツが見つかりませんでした。\n`;
         }
 
-        const filename = `${repoSlug}_${hashNum}.md`;
+        const filename = `DeepWiki_${repoSlug}_${hashNum}.md`;
         downloadPageFile(filename, pageMarkdown);
         LOG(`  → DL: ${filename}`);
 
