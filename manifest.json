@@ -1,0 +1,25 @@
+{
+  "manifest_version": 3,
+  "name": "Devin DeepWiki One-Tap Exporter",
+  "version": "1.0.0",
+  "description": "DevinのDeepWikiを一括でMarkdown化してNotebookLMへの入力を支援します。",
+  "permissions": [
+    "activeTab",
+    "downloads"
+  ],
+  "host_permissions": [
+    "https://app.devin.ai/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://app.devin.ai/org/*/wiki/*"
+      ],
+      "js": [
+        "turndown.js",
+        "content.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ]
+}
