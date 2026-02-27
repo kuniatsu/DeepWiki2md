@@ -998,7 +998,7 @@ var TurndownService = (function () {
    *   → 解決策: ボタンを直接クリックし MutationObserver でDOM更新を待つ。
    */
 
-  const VERSION = 'v0.0.5';
+  const VERSION = 'v0.0.6';
   const LOG = (...args) => console.log('[DeepWiki2md]', ...args);
 
   // 起動確認ログ: コンソールで動作バージョンと TurndownService の状態を即座に確認できる
@@ -1252,14 +1252,32 @@ var TurndownService = (function () {
 
     logTableOfContents(items);
 
-    if (!confirm(`${items.length} ページを抽出してMarkdownを作成します。よろしいですか？`)) {
+    if (!confirm(`${items.length} ページを個別MDファイルとしてダウンロードします。\nファイル名: <repoSlug>_<#番号>.md\n\nよろしいですか？`)) {
       return;
     }
 
     exportBtn.disabled = true;
-    let combinedMarkdown =
-      `# DeepWiki Export: ${document.title}\n` +
-      `Export Date: ${new Date().toLocaleString()}\n\n`;
+
+    // URL から /wiki/ 以降のリポジトリパスを抽出
+    // 例: https://app.devin.ai/org/ai-jvittechs/wiki/gitlab.com/jvit-techs/online-dr/enhance#1
+    //   → repoSlug = "gitlab.com_jvit-techs_online-dr_enhance"
+    const wikiPathMatch = window.location.href.match(/\/wiki\/([^#?]+)/);
+    const repoSlug = wikiPathMatch
+      ? wikiPathMatch[1].replace(/\/+$/, '').replace(/\//g, '_')
+      : 'unknown';
+
+    // 1ページ分をファイルとしてダウンロードするヘルパー
+    function downloadPageFile(filename, content) {
+      const blob = new Blob([content], { type: 'text/markdown' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    }
 
     let successCount = 0;
 
@@ -1272,50 +1290,39 @@ var TurndownService = (function () {
       try {
         await clickAndWait(btn);
 
-        // クリック後の実際のURL (#fragment付き) を記録
+        // クリック後の実際のURL を取得し、# 以降の数字をファイル名に使用
         const pageUrl = window.location.href;
-        LOG(`  → 実際のURL: ${pageUrl}`);
+        const hashNum = window.location.hash.replace('#', '') || sectionNum;
+        LOG(`  → URL: ${pageUrl}  hashNum: ${hashNum}`);
 
         const contentNode = findContentBody();
         LOG(`  コンテンツ取得: ${contentNode
           ? 'OK (' + contentNode.className.slice(0, 60) + ')'
           : 'NG'}`);
 
+        let pageMarkdown;
         if (contentNode) {
-          const markdown = htmlToMarkdown(contentNode.innerHTML);
-          combinedMarkdown += `\n---\n\n# ${label}\n\nURL: ${pageUrl}\n\n${markdown}\n`;
+          const bodyMd = htmlToMarkdown(contentNode.innerHTML);
+          pageMarkdown = `# ${label}\n\nURL: ${pageUrl}\n\n${bodyMd}\n`;
           successCount++;
         } else {
-          combinedMarkdown += `\n---\n\n# ${label}\n\n⚠️ コンテンツが見つかりませんでした。\n`;
+          pageMarkdown = `# ${label}\n\nURL: ${pageUrl}\n\n⚠️ コンテンツが見つかりませんでした。\n`;
         }
+
+        const filename = `${repoSlug}_${hashNum}.md`;
+        downloadPageFile(filename, pageMarkdown);
+        LOG(`  → DL: ${filename}`);
+
+        // ブラウザの連続ダウンロードブロックを避けるため少し待機
+        await new Promise(r => setTimeout(r, 400));
+
       } catch (error) {
         console.error(`[DeepWiki2md] 取得失敗: ${label}`, error);
-        combinedMarkdown += `\n---\n\n# ${label}\n\n⚠️ このページの取得に失敗しました。\n`;
       }
     }
 
-    // ファイルダウンロード
-    // URL から /wiki/ 以降のリポジトリパスを抽出してファイル名に使用
-    // 例: https://app.devin.ai/org/ai-jvittechs/wiki/gitlab.com/jvit-techs/online-dr/enhance#1
-    //   → repoSlug = "gitlab.com_jvit-techs_online-dr_enhance"
-    const wikiPathMatch = window.location.href.match(/\/wiki\/([^#?]+)/);
-    const repoSlug = wikiPathMatch
-      ? wikiPathMatch[1].replace(/\/+$/, '').replace(/\//g, '_')
-      : 'unknown';
-    const dateStr = new Date().toISOString().slice(0, 10);
-
-    const blob = new Blob([combinedMarkdown], { type: 'text/markdown' });
-    const downloadUrl = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = downloadUrl;
-    a.download = `DeepWiki_${repoSlug}_${dateStr}.md`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(downloadUrl);
-
     exportBtn.disabled = false;
-    exportBtn.innerText = `✅ ${successCount}件完了!`;
+    exportBtn.innerText = `✅ ${successCount}件 DL完了!`;
     setTimeout(() => {
       exportBtn.innerText = `🚀 一括MD生成 ${VERSION}`;
     }, 5000);
