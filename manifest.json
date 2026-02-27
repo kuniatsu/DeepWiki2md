@@ -16,7 +16,6 @@
         "https://app.devin.ai/org/*/wiki/*"
       ],
       "js": [
-        "turndown.js",
         "content.js"
       ],
       "run_at": "document_idle"
