@@ -6,12 +6,69 @@
    * 機能: サイドバーの全リンクを巡回し、本文をMarkdown化して1つのファイルに結合。
    */
 
-  // セレクター定義
-  const SIDEBAR_UL_SELECTOR =
-    '#app > div.bg-dark-bg.flex.h-screen.flex-col.supports-\\[height\\:100dvh\\]\\:h-\\[100dvh\\].w-screen > main > div.user-layout-body.relative.flex.h-full.min-w-0.flex-1.text-white.overflow-y-auto > div > div > div.wiki-content-container.relative.flex.flex-col.md\\:flex-row > div.border-r-border.hidden.max-h-screen.border-r.border-dashed.py-7.pr-4.transition-\\[border-radius\\].md\\:sticky.md\\:left-0.md\\:top-2.md\\:block.md\\:h-\\[calc\\(100vh-82px\\)\\].md\\:w-64.md\\:flex-shrink-0.md\\:overflow-y-auto.lg\\:py-9.xl\\:w-72 > div > ul';
+  // サイドバーのulを複数の方法で検索（アプリのDOM変更に対応）
+  function findSidebarUl() {
+    // 方法1: shadcn/ui SidebarコンポーネントのData属性
+    let el = document.querySelector('[data-sidebar="menu"] ul');
+    if (el) return el;
 
-  const CONTENT_BODY_SELECTOR =
-    '#app > div.bg-dark-bg.flex.h-screen.flex-col.supports-\\[height\\:100dvh\\]\\:h-\\[100dvh\\].w-screen > main > div.user-layout-body.relative.flex.h-full.min-w-0.flex-1.text-white.overflow-y-auto > div > div > div.wiki-content-container.relative.flex.flex-col.md\\:flex-row > div.flex.h-full.flex-1.flex-col.overflow-x-hidden > div > div > div > div > div';
+    el = document.querySelector('[data-slot="sidebar"] ul');
+    if (el) return el;
+
+    // 方法2: aside要素
+    el = document.querySelector('aside ul');
+    if (el) return el;
+
+    // 方法3: wiki-content-containerの左サイドバー
+    const container = document.querySelector('.wiki-content-container');
+    if (container) {
+      // flex-1でない子要素（メインコンテンツ以外）のulを探す
+      for (const child of container.children) {
+        if (!child.classList.contains('flex-1')) {
+          const ul = child.querySelector('ul');
+          if (ul) return ul;
+        }
+      }
+      // 最初の子要素のulを試す
+      if (container.firstElementChild) {
+        el = container.firstElementChild.querySelector('ul');
+        if (el) return el;
+      }
+    }
+
+    // 方法4: user-layout-body内のnav
+    el = document.querySelector('.user-layout-body nav ul');
+    if (el) return el;
+
+    return null;
+  }
+
+  // 各ページのコンテンツボディを検索
+  function findContentBody(doc) {
+    // 方法1: wiki-content-containerのメインコンテンツ(flex-1)
+    const container = doc.querySelector('.wiki-content-container');
+    if (container) {
+      const mainContent =
+        container.querySelector(':scope > .flex-1') ||
+        container.querySelector(':scope > div.flex.h-full.flex-1');
+      if (mainContent) {
+        const article =
+          mainContent.querySelector('article') ||
+          mainContent.querySelector('.prose');
+        return article || mainContent;
+      }
+    }
+
+    // 方法2: article要素
+    let el = doc.querySelector('article');
+    if (el) return el;
+
+    // 方法3: .proseクラス
+    el = doc.querySelector('.prose');
+    if (el) return el;
+
+    return null;
+  }
 
   // 1. ボタンを画面に生成
   const exportBtn = document.createElement('button');
@@ -46,7 +103,7 @@
 
   // 2. メイン実行ロジック
   exportBtn.onclick = async () => {
-    const sidebarUl = document.querySelector(SIDEBAR_UL_SELECTOR);
+    const sidebarUl = findSidebarUl();
     if (!sidebarUl) {
       alert('サイドバーが見つかりません。Wikiのトップ画面を開いているか確認してください。');
       return;
@@ -109,7 +166,7 @@
 
         const parser = new DOMParser();
         const doc = parser.parseFromString(html, 'text/html');
-        const contentNode = doc.querySelector(CONTENT_BODY_SELECTOR);
+        const contentNode = findContentBody(doc);
 
         if (contentNode) {
           const markdown = turndownService.turndown(contentNode.innerHTML);
