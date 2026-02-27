@@ -1001,6 +1001,15 @@ var TurndownService = (function () {
   const VERSION = 'v0.0.5';
   const LOG = (...args) => console.log('[DeepWiki2md]', ...args);
 
+  // 起動確認ログ: コンソールで動作バージョンと TurndownService の状態を即座に確認できる
+  console.log(
+    `%c[DeepWiki2md] ${VERSION} loaded — TurndownService: ${typeof TurndownService}`,
+    'background:#ec4899;color:#fff;padding:2px 6px;border-radius:4px;font-weight:bold'
+  );
+  if (typeof TurndownService === 'undefined') {
+    console.error('[DeepWiki2md] FATAL: TurndownService が未定義です。ファイルが古い可能性があります。');
+  }
+
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   // sidebar-group-content 内の li + button を解析し
   // セクション番号・予想URLを付けて返す
