@@ -1236,6 +1236,71 @@ var TurndownService = (function () {
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   // メイン実行ロジック
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // 選択モーダル
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  function showExportModal(items, onSelect) {
+    const overlay = document.createElement('div');
+    Object.assign(overlay.style, {
+      position: 'fixed', inset: '0', zIndex: '1000000',
+      backgroundColor: 'rgba(0,0,0,0.6)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+    });
+
+    const modal = document.createElement('div');
+    Object.assign(modal.style, {
+      backgroundColor: '#1e1e2e',
+      color: '#cdd6f4',
+      borderRadius: '16px',
+      padding: '32px',
+      width: '360px',
+      boxShadow: '0 20px 60px rgba(0,0,0,0.8)',
+      fontFamily: 'system-ui, sans-serif',
+    });
+
+    modal.innerHTML = `
+      <div style="font-size:18px;font-weight:bold;margin-bottom:8px;">📄 MD エクスポート</div>
+      <div style="font-size:13px;color:#a6adc8;margin-bottom:24px;">${items.length} ページが見つかりました。出力形式を選んでください。</div>
+      <div style="display:flex;flex-direction:column;gap:12px;">
+        <button id="dw-btn-individual" style="
+          padding:14px 16px; border:none; border-radius:10px; cursor:pointer;
+          background:#313244; color:#cdd6f4; font-size:14px; font-weight:bold; text-align:left;
+          transition:background 0.2s;">
+          📂 ページごとに分けて保存
+          <div style="font-size:11px;font-weight:normal;color:#a6adc8;margin-top:4px;">DeepWiki_&lt;repoSlug&gt;_&lt;#番号&gt;.md × ${items.length}ファイル</div>
+        </button>
+        <button id="dw-btn-combined" style="
+          padding:14px 16px; border:none; border-radius:10px; cursor:pointer;
+          background:#313244; color:#cdd6f4; font-size:14px; font-weight:bold; text-align:left;
+          transition:background 0.2s;">
+          📋 Wiki全体を1ファイルにまとめる
+          <div style="font-size:11px;font-weight:normal;color:#a6adc8;margin-top:4px;">DeepWiki_&lt;repoSlug&gt;.md × 1ファイル</div>
+        </button>
+        <button id="dw-btn-cancel" style="
+          padding:10px 16px; border:none; border-radius:10px; cursor:pointer;
+          background:transparent; color:#6c7086; font-size:13px;
+          transition:color 0.2s;">
+          キャンセル
+        </button>
+      </div>
+    `;
+
+    overlay.appendChild(modal);
+    document.body.appendChild(overlay);
+
+    const close = () => document.body.removeChild(overlay);
+
+    modal.querySelector('#dw-btn-individual').onmouseenter = e => e.target.style.background = '#45475a';
+    modal.querySelector('#dw-btn-individual').onmouseleave = e => e.target.style.background = '#313244';
+    modal.querySelector('#dw-btn-combined').onmouseenter  = e => e.target.style.background = '#45475a';
+    modal.querySelector('#dw-btn-combined').onmouseleave  = e => e.target.style.background = '#313244';
+
+    modal.querySelector('#dw-btn-individual').onclick = () => { close(); onSelect('individual'); };
+    modal.querySelector('#dw-btn-combined').onclick   = () => { close(); onSelect('combined'); };
+    modal.querySelector('#dw-btn-cancel').onclick     = () => { close(); onSelect(null); };
+    overlay.onclick = e => { if (e.target === overlay) { close(); onSelect(null); } };
+  }
+
   exportBtn.onclick = async () => {
     LOG('=== ボタンクリック ===');
 
@@ -1252,9 +1317,9 @@ var TurndownService = (function () {
 
     logTableOfContents(items);
 
-    if (!confirm(`${items.length} ページを個別MDファイルとしてダウンロードします。\nファイル名: DeepWiki_<repoSlug>_<#番号>.md\n\nよろしいですか？`)) {
-      return;
-    }
+    // モーダルで出力形式を選択
+    const mode = await new Promise(resolve => showExportModal(items, resolve));
+    if (!mode) return;
 
     exportBtn.disabled = true;
 
@@ -1266,8 +1331,8 @@ var TurndownService = (function () {
       ? wikiPathMatch[1].replace(/\/+$/, '').replace(/\//g, '_')
       : 'unknown';
 
-    // 1ページ分をファイルとしてダウンロードするヘルパー
-    function downloadPageFile(filename, content) {
+    // ファイルをダウンロードするヘルパー
+    function downloadFile(filename, content) {
       const blob = new Blob([content], { type: 'text/markdown' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -1280,6 +1345,7 @@ var TurndownService = (function () {
     }
 
     let successCount = 0;
+    const combinedParts = [];
 
     for (let i = 0; i < items.length; i++) {
       const { label, sectionNum, btn } = items[i];
@@ -1309,16 +1375,28 @@ var TurndownService = (function () {
           pageMarkdown = `# ${label}\n\nURL: ${pageUrl}\n\n⚠️ コンテンツが見つかりませんでした。\n`;
         }
 
-        const filename = `DeepWiki_${repoSlug}_${hashNum}.md`;
-        downloadPageFile(filename, pageMarkdown);
-        LOG(`  → DL: ${filename}`);
-
-        // ブラウザの連続ダウンロードブロックを避けるため少し待機
-        await new Promise(r => setTimeout(r, 400));
+        if (mode === 'individual') {
+          const filename = `DeepWiki_${repoSlug}_${hashNum}.md`;
+          downloadFile(filename, pageMarkdown);
+          LOG(`  → DL: ${filename}`);
+          // ブラウザの連続ダウンロードブロックを避けるため少し待機
+          await new Promise(r => setTimeout(r, 400));
+        } else {
+          combinedParts.push(pageMarkdown);
+          LOG(`  → 蓄積 [${combinedParts.length}]`);
+        }
 
       } catch (error) {
         console.error(`[DeepWiki2md] 取得失敗: ${label}`, error);
       }
+    }
+
+    // 全体1ファイルモードの場合まとめてDL
+    if (mode === 'combined' && combinedParts.length > 0) {
+      const combined = combinedParts.join('\n\n---\n\n');
+      const filename = `DeepWiki_${repoSlug}.md`;
+      downloadFile(filename, combined);
+      LOG(`→ 全体DL: ${filename} (${combinedParts.length}ページ)`);
     }
 
     exportBtn.disabled = false;
